@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>MindSwipe</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f8f8fc;
+      --surface: #ffffff;
+      --text: #1a1a2e;
+      --muted: #8888aa;
+      --border: #e8e8f0;
+      --accent: #6366f1;
+    }
+    .dark {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --text: #f0f0f8;
+      --muted: #6b6b8a;
+      --border: #2a2a3a;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── screens ── */
+    #app {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .screen {
+      display: none;
+      height: 100%;
+      flex-direction: column;
+    }
+    .screen.active { display: flex; }
+
+    /* ── bottom nav ── */
+    nav {
+      display: flex;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    nav button {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 8px;
+      gap: 3px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: 400;
+      transition: color 0.2s;
+    }
+    nav button.active { color: #6366f1; font-weight: 700; }
+    nav button span.icon { font-size: 22px; }
+
+    /* ── loading ── */
+    #loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100dvh;
+      background: var(--bg);
+      flex-direction: column;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    #loading .icon { font-size: 48px; }
+
+    /* ─────────────────────────── SWIPE ─────────────────────────── */
+    #swipe-stats {
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 16px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    #progress-bar-wrap {
+      margin: 8px 20px 0;
+      height: 4px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%;
+      background: #6366f1;
+      border-radius: 4px;
+      transition: width 0.5s;
+      width: 0%;
+    }
+
+    #card-stack-area {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 20px;
+      position: relative;
+    }
+
+    .shadow-card {
+      position: absolute;
+      width: calc(100% - 40px);
+      max-width: 380px;
+      height: 380px;
+      background: var(--surface);
+      border-radius: 28px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      transform: scale(0.94) translateY(14px);
+      z-index: 0;
+      border: 1px solid var(--border);
+      pointer-events: none;
+    }
+
+    #main-card {
+      position: relative;
+      width: calc(100% - 40px);
+      max-width: 380px;
+      height: 390px;
+      background: var(--surface);
+      border-radius: 28px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.18);
+      z-index: 1;
+      cursor: grab;
+      border: 1px solid var(--border);
+      user-select: none;
+      transition: transform 0.35s cubic-bezier(.34,1.56,.64,1);
+      overflow: hidden;
+    }
+    #main-card:active { cursor: grabbing; }
+    #main-card.dragging { transition: none; }
+
+    .swipe-label {
+      position: absolute;
+      top: 20px;
+      font-weight: 900;
+      font-size: 18px;
+      padding: 4px 12px;
+      border-radius: 10px;
+      border-width: 4px;
+      border-style: solid;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .label-right { left: 20px; border-color: #22c55e; color: #22c55e; transform: rotate(-18deg); }
+    .label-left  { right: 20px; border-color: #f97316; color: #f97316; transform: rotate(18deg); }
+
+    .card-inner {
+      padding: 24px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .type-pill {
+      padding: 4px 12px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .card-status-badge {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .card-title {
+      font-weight: 800;
+      font-size: 17px;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+
+    .card-content {
+      flex: 1;
+      overflow: hidden;
+      font-size: 15px;
+      line-height: 1.6;
+      color: #4a4a6a;
+    }
+    .dark .card-content { color: #c0c0d8; }
+
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .tag-pill {
+      padding: 2px 10px;
+      background: #f0f0f8;
+      border-radius: 99px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .dark .tag-pill { background: #2a2a3a; }
+
+    .card-drag-hint { text-align: center; font-size: 11px; color: var(--muted); margin-top: 10px; }
+
+    #swipe-actions {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      padding-bottom: 20px;
+    }
+    #swipe-actions button {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: none;
+      font-size: 26px;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    }
+    #btn-later { background: #fff3e0; }
+    #btn-know  { background: #e8fdf0; }
+    .dark #btn-later { background: #2d1f0e; }
+    .dark #btn-know  { background: #0e2d1a; }
+
+    /* Done state */
+    #swipe-done {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      padding: 24px;
+      text-align: center;
+    }
+    #swipe-done .done-icon { font-size: 64px; }
+    #swipe-done .done-title { font-size: 22px; font-weight: 800; }
+    #swipe-done .done-sub { color: var(--muted); line-height: 1.6; }
+    #btn-review-again {
+      padding: 14px 32px;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 99px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    /* ─────────────────────────── GRAPH ─────────────────────────── */
+    #graph-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+    }
+    #graph-header .title { font-weight: 800; font-size: 18px; }
+
+    #btn-connect-mode {
+      padding: 6px 14px;
+      border-radius: 99px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: inherit;
+      background: #f0f0f8;
+      color: var(--muted);
+      transition: all 0.2s;
+    }
+    #btn-connect-mode.active { background: #6366f1; color: #fff; }
+    .dark #btn-connect-mode { background: #2a2a3a; }
+
+    #graph-legend {
+      display: flex;
+      gap: 10px;
+      padding-left: 16px;
+      padding-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    #connect-hint {
+      display: none;
+      margin: 0 16px 8px;
+      padding: 8px 16px;
+      background: #6366f1;
+      color: #fff;
+      border-radius: 12px;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    #graph-svg {
+      flex: 1;
+      width: 100%;
+      display: block;
+    }
+
+    #graph-toast {
+      display: none;
+      position: absolute;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #22c55e;
+      color: #fff;
+      padding: 8px 20px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 700;
+      z-index: 10;
+      white-space: nowrap;
+    }
+
+    #node-panel {
+      display: none;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-radius: 24px 24px 0 0;
+      padding: 20px;
+      box-shadow: 0 -8px 32px rgba(0,0,0,0.2);
+      max-height: 260px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      z-index: 20;
+    }
+    .node-panel-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    .node-panel-header .left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .node-panel-title { font-weight: 800; font-size: 16px; }
+    #node-panel-close { border: none; background: none; font-size: 20px; color: var(--muted); cursor: pointer; }
+    .node-panel-content { font-size: 14px; line-height: 1.6; color: #4a4a6a; }
+    .dark .node-panel-content { color: #c0c0d8; }
+    .node-panel-tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .node-panel-conn { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+    /* ─────────────────────────── ADD ─────────────────────────── */
+    .screen-title { font-weight: 800; font-size: 22px; margin-bottom: 4px; }
+    .screen-sub   { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+
+    .type-pills {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .type-pill-btn {
+      padding: 8px 16px;
+      border-radius: 99px;
+      border: none;
+      cursor: pointer;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: inherit;
+      background: #f0f0f8;
+      color: var(--muted);
+      transition: all 0.2s;
+    }
+    .dark .type-pill-btn { background: #2a2a3a; }
+    .type-pill-btn.active { color: #fff; }
+
+    .form-group { display: flex; flex-direction: column; gap: 14px; }
+    .form-label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--muted); }
+    .form-input, .form-textarea {
+      background: #f2f2fa;
+      border: none;
+      outline: none;
+      border-radius: 16px;
+      padding: 14px 16px;
+      color: var(--text);
+      font-size: 15px;
+      width: 100%;
+      font-family: inherit;
+    }
+    .dark .form-input, .dark .form-textarea { background: #2a2a3a; }
+    .form-textarea { resize: none; min-height: 140px; }
+
+    .btn-primary {
+      padding: 16px;
+      border-radius: 18px;
+      border: none;
+      background: #6366f1;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      font-family: inherit;
+      width: 100%;
+      margin-top: 4px;
+    }
+    .btn-primary:disabled { background: #e0e0ee; color: var(--muted); cursor: not-allowed; }
+    .dark .btn-primary:disabled { background: #2a2a3a; }
+
+    /* ─────────────────────────── NOTION ─────────────────────────── */
+    .setup-box {
+      background: #f0f0ff;
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      line-height: 2;
+    }
+    .dark .setup-box { background: #1a1a30; }
+    .setup-box .setup-title { font-weight: 700; color: #6366f1; margin-bottom: 4px; }
+    .setup-box .setup-body { color: #4a4a7a; }
+    .dark .setup-box .setup-body { color: #a0a0c8; }
+
+    .notion-form { display: flex; flex-direction: column; gap: 14px; }
+    .form-input-mono {
+      background: #f2f2fa;
+      border: none;
+      outline: none;
+      border-radius: 16px;
+      padding: 14px 16px;
+      color: var(--text);
+      font-size: 14px;
+      width: 100%;
+      font-family: monospace;
+    }
+    .dark .form-input-mono { background: #2a2a3a; }
+
+    #sync-status-box {
+      display: none;
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    #sync-status-box.ok  { background: #e8fdf0; color: #16a34a; }
+    #sync-status-box.err { background: #fff0f0; color: #dc2626; }
+    .dark #sync-status-box.ok  { background: #0d2b1a; }
+    .dark #sync-status-box.err { background: #2d1010; }
+
+    .divider { border-top: 1px solid var(--border); margin: 24px 0 20px; }
+
+    .paste-area { display: flex; flex-direction: column; gap: 12px; }
+    .paste-type-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .paste-pill-btn {
+      padding: 6px 14px;
+      border-radius: 99px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: inherit;
+      background: #f0f0f8;
+      color: var(--muted);
+      transition: all 0.2s;
+    }
+    .dark .paste-pill-btn { background: #2a2a3a; }
+    .paste-pill-btn.active { color: #fff; }
+
+    #paste-status {
+      display: none;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      background: #e8fdf0;
+      color: #16a34a;
+    }
+    .dark #paste-status { background: #0d2b1a; }
+
+    .stats-section { margin-top: 28px; }
+    .stats-label { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 12px; }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .stat-tile {
+      background: #f2f2fa;
+      border-radius: 16px;
+      padding: 14px 10px;
+      text-align: center;
+    }
+    .dark .stat-tile { background: #2a2a3a; }
+    .stat-tile .stat-emoji { font-size: 22px; }
+    .stat-tile .stat-count { font-weight: 800; font-size: 20px; margin: 4px 0; }
+    .stat-tile .stat-name  { font-size: 11px; color: var(--muted); }
+    .stat-total {
+      margin-top: 10px;
+      background: #f2f2fa;
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+    }
+    .dark .stat-total { background: #2a2a3a; }
+    .stat-total .label { color: var(--muted); }
+    .stat-total .value { font-weight: 800; }
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="icon">🧠</div>
+  <div>Loading your knowledge...</div>
+</div>
+
+<!-- App shell -->
+<div id="app" style="display:none; flex:1; overflow:hidden; position:relative; height:100%; display:flex; flex-direction:column;">
+
+  <!-- ════ SWIPE SCREEN ════ -->
+  <section id="screen-swipe" class="screen">
+    <div id="swipe-stats">
+      <span id="stat-new">🆕 0 new</span>
+      <span id="stat-review">🔄 0 review</span>
+      <span id="stat-known">✅ 0 known</span>
+    </div>
+    <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+
+    <div id="card-stack-area">
+      <div class="shadow-card" id="shadow-card" style="display:none"></div>
+      <div id="main-card" style="display:none">
+        <div class="swipe-label label-right" id="label-got">GOT IT ✓</div>
+        <div class="swipe-label label-left"  id="label-later-lbl">LATER 🔄</div>
+        <div class="card-inner">
+          <div class="card-header-row">
+            <span class="type-pill" id="card-type-pill"></span>
+            <span class="card-status-badge" id="card-status-badge"></span>
+          </div>
+          <div class="card-title" id="card-title"></div>
+          <div class="card-content" id="card-content"></div>
+          <div class="card-tags" id="card-tags"></div>
+          <div class="card-drag-hint">Drag to swipe</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="swipe-done">
+      <div class="done-icon">🎉</div>
+      <div class="done-title">All caught up!</div>
+      <div class="done-sub" id="done-sub"></div>
+      <button id="btn-review-again">Review Again</button>
+    </div>
+
+    <div id="swipe-actions">
+      <button id="btn-later">🔄</button>
+      <button id="btn-know">✅</button>
+    </div>
+  </section>
+
+  <!-- ════ GRAPH SCREEN ════ -->
+  <section id="screen-graph" class="screen" style="position:relative">
+    <div id="graph-header">
+      <div class="title">Idea Graph</div>
+      <button id="btn-connect-mode">🔗 Connect</button>
+    </div>
+    <div id="graph-legend"></div>
+    <div id="connect-hint">Tap the first node to connect</div>
+    <svg id="graph-svg"></svg>
+    <div id="graph-toast"></div>
+    <div id="node-panel">
+      <div class="node-panel-header">
+        <div class="left">
+          <span class="type-pill" id="np-type-pill"></span>
+          <span class="node-panel-title" id="np-title"></span>
+        </div>
+        <button id="node-panel-close">✕</button>
+      </div>
+      <p class="node-panel-content" id="np-content"></p>
+      <div class="node-panel-tags" id="np-tags"></div>
+      <div class="node-panel-conn" id="np-conn"></div>
+    </div>
+  </section>
+
+  <!-- ════ ADD SCREEN ════ -->
+  <section id="screen-add" class="screen" style="overflow-y:auto;padding:16px 20px 32px">
+    <div class="screen-title">Add to Library</div>
+    <div class="screen-sub">Paste a highlight or type a note</div>
+    <div class="type-pills" id="add-type-pills"></div>
+    <div class="form-group">
+      <div>
+        <label class="form-label">SOURCE / TITLE *</label>
+        <input id="add-title" class="form-input" placeholder="e.g. Atomic Habits, The Atlantic…" />
+      </div>
+      <div>
+        <label class="form-label">CONTENT / HIGHLIGHT *</label>
+        <textarea id="add-content" class="form-textarea" placeholder="Paste your highlight, quote, or key idea…"></textarea>
+      </div>
+      <div>
+        <label class="form-label">TAGS (comma separated)</label>
+        <input id="add-tags" class="form-input" placeholder="psychology, habits, productivity…" />
+      </div>
+      <button class="btn-primary" id="btn-add-submit">Add to Library ✨</button>
+    </div>
+  </section>
+
+  <!-- ════ NOTION SCREEN ════ -->
+  <section id="screen-notion" class="screen" style="overflow-y:auto;padding:16px 20px 32px">
+    <div class="screen-title">Notion Sync</div>
+    <div class="screen-sub">Pull your notes from Notion automatically</div>
+
+    <div class="setup-box">
+      <div class="setup-title">⚙️ Setup</div>
+      <div class="setup-body">
+        1. Go to <b>notion.so/my-integrations</b> → New integration → copy key<br/>
+        2. Open your reading database → <b>Share → Invite</b> your integration<br/>
+        3. Copy the database ID from the page URL<br/>
+        <span style="font-size:11px;opacity:0.7">(URL format: notion.so/workspace/<b>[database-id]</b>?v=…)</span>
+      </div>
+    </div>
+
+    <div class="notion-form">
+      <div>
+        <label class="form-label">NOTION API KEY</label>
+        <input id="notion-key" class="form-input-mono" type="password" placeholder="secret_xxxxxxxxxxxx" />
+      </div>
+      <div>
+        <label class="form-label">DATABASE ID</label>
+        <input id="notion-db" class="form-input-mono" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+      </div>
+      <button class="btn-primary" id="btn-sync">🔄 Sync Now</button>
+      <div id="sync-status-box"></div>
+
+      <div class="divider"></div>
+      <div style="font-weight:800;font-size:16px;margin-bottom:4px">📋 Paste Import</div>
+      <div style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6">
+        Works right now! In Notion, open your database → select all → copy → paste below.
+      </div>
+      <div class="paste-area">
+        <div class="paste-type-pills" id="paste-type-pills"></div>
+        <textarea id="paste-raw" class="form-textarea" style="min-height:120px"
+          placeholder="Paste your Notion notes here…&#10;&#10;Tip: Format as 'Title - Content' or 'Title: Content' for best results."></textarea>
+        <button class="btn-primary" id="btn-paste-import">Import Notes ✨</button>
+        <div id="paste-status"></div>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <div class="stats-label">LIBRARY STATS</div>
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="stat-total">
+        <span class="label">Total cards</span>
+        <span class="value" id="stat-total-count">0</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- Bottom Nav -->
+<nav id="bottom-nav" style="display:none">
+  <button data-screen="swipe" class="active"><span class="icon">🃏</span>Swipe</button>
+  <button data-screen="graph"><span class="icon">🗺️</span>Graph</button>
+  <button data-screen="add"><span class="icon">➕</span>Add</button>
+  <button data-screen="notion"><span class="icon">🔗</span>Notion</button>
+</nav>
+
+<script>
+/* ════════════════════ CONFIG & DATA ════════════════════ */
+const TYPES = {
+  book:    { label:"Book",    color:"#6366f1", emoji:"📚" },
+  article: { label:"Article", color:"#0ea5e9", emoji:"📄" },
+  quote:   { label:"Quote",   color:"#f59e0b", emoji:"💬" },
+  idea:    { label:"Idea",    color:"#10b981", emoji:"💡" },
+  note:    { label:"Note",    color:"#ec4899", emoji:"📝" },
+};
+
+const uid = () => Math.random().toString(36).substr(2, 9);
+
+const SAMPLES = [
+  { id:uid(), title:"Atomic Habits", content:"You do not rise to the level of your goals. You fall to the level of your systems.", type:"quote", tags:["habits","productivity"], status:"unseen", connections:[], createdAt:Date.now()-5e5 },
+  { id:uid(), title:"Thinking, Fast and Slow", content:"System 1 operates automatically and quickly, with little effort and no sense of voluntary control. System 2 allocates attention to effortful mental activities.", type:"book", tags:["psychology","cognition"], status:"unseen", connections:[], createdAt:Date.now()-4e5 },
+  { id:uid(), title:"Deep Work", content:"The ability to perform deep work is becoming increasingly rare at exactly the same time it is becoming increasingly valuable in our economy.", type:"book", tags:["productivity","focus"], status:"unseen", connections:[], createdAt:Date.now()-3e5 },
+  { id:uid(), title:"The Power of Now", content:"Realize deeply that the present moment is all you ever have. Make the NOW the primary focus of your life.", type:"book", tags:["mindfulness","philosophy"], status:"unseen", connections:[], createdAt:Date.now()-2e5 },
+  { id:uid(), title:"Man's Search for Meaning", content:"Between stimulus and response there is a space. In that space is our power to choose our response.", type:"quote", tags:["philosophy","psychology"], status:"unseen", connections:[], createdAt:Date.now()-1e5 },
+];
+
+let state = {
+  cards: [],
+  swipeIdx: 0,
+  swipeQueue: [],
+  addType: "book",
+  pasteType: "note",
+};
+
+function saveCards() {
+  localStorage.setItem("mindswipe-cards", JSON.stringify(state.cards));
+}
+function addCard(card) {
+  const c = { ...card, id:uid(), createdAt:Date.now(), status:"unseen", connections:[] };
+  state.cards = [c, ...state.cards];
+  saveCards();
+}
+function updateCard(id, upd) {
+  state.cards = state.cards.map(c => c.id === id ? { ...c, ...upd } : c);
+  saveCards();
+}
+function connectCards(id1, id2) {
+  state.cards = state.cards.map(c => {
+    if (c.id === id1 && !c.connections.includes(id2)) return { ...c, connections:[...c.connections, id2] };
+    if (c.id === id2 && !c.connections.includes(id1)) return { ...c, connections:[...c.connections, id1] };
+    return c;
+  });
+  saveCards();
+}
+function escHtml(str) {
+  return String(str ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+/* ════════════════════ DARK MODE ════════════════════ */
+function applyDark(dark) {
+  document.documentElement.classList.toggle("dark", dark);
+  document.body.classList.toggle("dark", dark);
+}
+
+/* ════════════════════ NAV ════════════════════ */
+let currentScreen = "swipe";
+function showScreen(id) {
+  currentScreen = id;
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById("screen-" + id).classList.add("active");
+  document.querySelectorAll("#bottom-nav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.screen === id));
+  if (id === "swipe")  renderSwipe();
+  if (id === "graph")  renderGraph();
+  if (id === "notion") renderStats();
+}
+document.querySelectorAll("#bottom-nav button").forEach(btn =>
+  btn.addEventListener("click", () => showScreen(btn.dataset.screen)));
+
+/* ════════════════════ SWIPE ════════════════════ */
+let dragState = { active:false, startX:0, startY:0, dx:0, dy:0 };
+
+function renderSwipe() {
+  const queue = state.cards.filter(c => c.status !== "known");
+  state.swipeQueue = queue;
+  const knownCount    = state.cards.filter(c => c.status === "known").length;
+  const learningCount = state.cards.filter(c => c.status === "learning").length;
+  const unseenCount   = state.cards.filter(c => c.status === "unseen").length;
+
+  document.getElementById("stat-new").textContent    = `🆕 ${unseenCount} new`;
+  document.getElementById("stat-review").textContent = `🔄 ${learningCount} review`;
+  document.getElementById("stat-known").textContent  = `✅ ${knownCount} known`;
+  document.getElementById("progress-bar").style.width = state.cards.length
+    ? `${(knownCount / state.cards.length) * 100}%` : "0%";
+
+  const card = queue[state.swipeIdx];
+  const mainCard   = document.getElementById("main-card");
+  const shadowCard = document.getElementById("shadow-card");
+  const donePanel  = document.getElementById("swipe-done");
+  const actPanel   = document.getElementById("swipe-actions");
+
+  if (!card || state.swipeIdx >= queue.length) {
+    mainCard.style.display   = "none";
+    shadowCard.style.display = "none";
+    donePanel.style.display  = "flex";
+    actPanel.style.display   = "none";
+    document.getElementById("done-sub").innerHTML =
+      `✅ ${knownCount} mastered · 🔄 ${learningCount} in progress`;
+    return;
+  }
+
+  donePanel.style.display  = "none";
+  actPanel.style.display   = "flex";
+  mainCard.style.display   = "block";
+  shadowCard.style.display = queue[state.swipeIdx + 1] ? "block" : "none";
+  mainCard.style.transform = "";
+
+  const t = TYPES[card.type] || TYPES.note;
+  document.getElementById("card-type-pill").textContent      = `${t.emoji} ${t.label}`;
+  document.getElementById("card-type-pill").style.background = t.color;
+  document.getElementById("card-status-badge").textContent   = card.status === "learning" ? "🔄 Review" : "🆕 New";
+  document.getElementById("card-title").textContent   = card.title;
+  document.getElementById("card-content").textContent = card.content;
+  document.getElementById("card-tags").innerHTML =
+    (card.tags || []).map(tag => `<span class="tag-pill">#${tag}</span>`).join("");
+}
+
+function actSwipe(action) {
+  const card = state.swipeQueue[state.swipeIdx];
+  if (!card) return;
+  if (action === "know")  updateCard(card.id, { status:"known" });
+  if (action === "later") updateCard(card.id, { status:"learning" });
+  state.swipeIdx++;
+  dragState = { active:false, startX:0, startY:0, dx:0, dy:0 };
+  document.getElementById("main-card").style.transform = "";
+  document.getElementById("label-got").style.opacity        = 0;
+  document.getElementById("label-later-lbl").style.opacity  = 0;
+  renderSwipe();
+}
+
+document.getElementById("btn-know").addEventListener("click",  () => actSwipe("know"));
+document.getElementById("btn-later").addEventListener("click", () => actSwipe("later"));
+document.getElementById("btn-review-again").addEventListener("click", () => {
+  state.swipeIdx = 0; renderSwipe();
+});
+
+const mc = document.getElementById("main-card");
+function dragStart(x, y) {
+  dragState = { active:true, startX:x, startY:y, dx:0, dy:0 };
+  mc.classList.add("dragging");
+}
+function dragMove(x, y) {
+  if (!dragState.active) return;
+  dragState.dx = x - dragState.startX;
+  dragState.dy = y - dragState.startY;
+  mc.style.transform = `translateX(${dragState.dx}px) translateY(${dragState.dy * 0.2}px) rotate(${dragState.dx / 18}deg)`;
+  document.getElementById("label-got").style.opacity       = dragState.dx > 40 ? Math.min(dragState.dx / 90, 1) : 0;
+  document.getElementById("label-later-lbl").style.opacity = dragState.dx < -40 ? Math.min(-dragState.dx / 90, 1) : 0;
+}
+function dragEnd() {
+  if (!dragState.active) return;
+  mc.classList.remove("dragging");
+  if      (dragState.dx >  90) actSwipe("know");
+  else if (dragState.dx < -90) actSwipe("later");
+  else {
+    mc.style.transform = "";
+    document.getElementById("label-got").style.opacity       = 0;
+    document.getElementById("label-later-lbl").style.opacity = 0;
+    dragState.active = false;
+  }
+}
+mc.addEventListener("mousedown",  e => dragStart(e.clientX, e.clientY));
+window.addEventListener("mousemove", e => { if (dragState.active) dragMove(e.clientX, e.clientY); });
+window.addEventListener("mouseup",   dragEnd);
+mc.addEventListener("touchstart", e => dragStart(e.touches[0].clientX, e.touches[0].clientY), { passive:true });
+mc.addEventListener("touchmove",  e => { if (dragState.active) dragMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive:true });
+mc.addEventListener("touchend",   dragEnd);
+
+/* ════════════════════ GRAPH ════════════════════ */
+(function buildLegend() {
+  document.getElementById("graph-legend").innerHTML = Object.entries(TYPES).map(([k,v]) =>
+    `<div class="legend-item"><div class="legend-dot" style="background:${v.color}"></div>${v.label}</div>`
+  ).join("");
+})();
+
+let connectMode = false;
+let connectFrom = null;
+
+function showToast(msg) {
+  const t = document.getElementById("graph-toast");
+  t.textContent = msg; t.style.display = "block";
+  setTimeout(() => { t.style.display = "none"; }, 2500);
+}
+function updateConnectHint() {
+  const h = document.getElementById("connect-hint");
+  if (!connectMode) { h.style.display = "none"; return; }
+  h.style.display = "block";
+  h.textContent = connectFrom ? "Now tap the second node to connect" : "Tap the first node to connect";
+}
+function closeNodePanel() { document.getElementById("node-panel").style.display = "none"; }
+document.getElementById("node-panel-close").addEventListener("click", closeNodePanel);
+
+document.getElementById("btn-connect-mode").addEventListener("click", () => {
+  connectMode = !connectMode; connectFrom = null;
+  const btn = document.getElementById("btn-connect-mode");
+  btn.textContent = connectMode ? "✕ Cancel" : "🔗 Connect";
+  btn.classList.toggle("active", connectMode);
+  closeNodePanel(); updateConnectHint();
+});
+
+function renderGraph() {
+  const svgEl = document.getElementById("graph-svg");
+  const W = svgEl.clientWidth  || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight - 200;
+  const dark = document.body.classList.contains("dark");
+
+  d3.select(svgEl).selectAll("*").remove();
+
+  const nodes = state.cards.map(c => ({ ...c, _color: TYPES[c.type]?.color || "#6366f1" }));
+  const links = [];
+  state.cards.forEach(c => (c.connections || []).forEach(tid => {
+    if (c.id < tid) links.push({ source:c.id, target:tid });
+  }));
+
+  const svg = d3.select(svgEl);
+  const g   = svg.append("g");
+  svg.call(d3.zoom().scaleExtent([0.2, 4]).on("zoom", e => g.attr("transform", e.transform)));
+
+  const linkSel = g.append("g").selectAll("line").data(links).join("line")
+    .attr("stroke","#6366f1").attr("stroke-opacity",0.35).attr("stroke-width",2);
+
+  const nodeSel = g.append("g").selectAll("g").data(nodes).join("g")
+    .call(d3.drag()
+      .on("start", (e,d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on("drag",  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on("end",   (e,d) => { if (!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; })
+    )
+    .on("click", (e, d) => {
+      e.stopPropagation();
+      if (connectMode) {
+        if (!connectFrom) { connectFrom = d.id; }
+        else if (connectFrom !== d.id) {
+          connectCards(connectFrom, d.id); connectFrom = null;
+          showToast("✅ Connected!"); renderGraph();
+        }
+        updateConnectHint(); return;
+      }
+      const t = TYPES[d.type] || TYPES.note;
+      document.getElementById("np-type-pill").textContent      = `${t.emoji} ${t.label}`;
+      document.getElementById("np-type-pill").style.background = t.color;
+      document.getElementById("np-title").textContent   = d.title;
+      document.getElementById("np-content").textContent = d.content;
+      document.getElementById("np-tags").innerHTML =
+        (d.tags || []).map(tag => `<span class="tag-pill">#${tag}</span>`).join("");
+      const cl = (d.connections || []).length;
+      document.getElementById("np-conn").textContent = cl
+        ? `🔗 Connected to ${cl} idea${cl > 1 ? "s" : ""}` : "";
+      document.getElementById("node-panel").style.display = "block";
+    });
+
+  nodeSel.append("circle")
+    .attr("r",       d => d.status === "known" ? 30 : 20)
+    .attr("fill",    d => d._color)
+    .attr("opacity", d => d.status === "known" ? 1 : 0.65)
+    .attr("stroke", dark ? "#1a1a24" : "#fff")
+    .attr("stroke-width", 3);
+
+  nodeSel.append("text")
+    .text(d => d.title.length > 10 ? d.title.slice(0,10)+"…" : d.title)
+    .attr("text-anchor","middle").attr("dy","0.35em")
+    .attr("fill","#fff").attr("font-size",8).attr("font-weight","bold")
+    .attr("pointer-events","none");
+
+  const sim = d3.forceSimulation(nodes)
+    .force("link",    d3.forceLink(links).id(d => d.id).distance(130))
+    .force("charge",  d3.forceManyBody().strength(-250))
+    .force("center",  d3.forceCenter(W/2, H/2))
+    .force("collide", d3.forceCollide(45))
+    .on("tick", () => {
+      linkSel.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
+             .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+      nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+
+  svg.on("click", () => closeNodePanel());
+}
+
+/* ════════════════════ ADD ════════════════════ */
+function buildAddTypePills() {
+  const el = document.getElementById("add-type-pills");
+  el.innerHTML = Object.entries(TYPES).map(([k,v]) =>
+    `<button class="type-pill-btn${k===state.addType?" active":""}" data-type="${k}"
+       style="${k===state.addType?"background:"+v.color+";":""}">
+      ${v.emoji} ${v.label}
+    </button>`
+  ).join("");
+  el.querySelectorAll(".type-pill-btn").forEach(btn =>
+    btn.addEventListener("click", () => { state.addType = btn.dataset.type; buildAddTypePills(); })
+  );
+}
+
+document.getElementById("btn-add-submit").addEventListener("click", () => {
+  const title   = document.getElementById("add-title").value.trim();
+  const content = document.getElementById("add-content").value.trim();
+  const tags    = document.getElementById("add-tags").value.split(",").map(t=>t.trim()).filter(Boolean);
+  if (!title || !content) return;
+  addCard({ title, content, type:state.addType, tags });
+  document.getElementById("add-title").value   = "";
+  document.getElementById("add-content").value = "";
+  document.getElementById("add-tags").value    = "";
+  state.swipeIdx = 0;
+  showScreen("swipe");
+});
+
+/* ════════════════════ NOTION ════════════════════ */
+function buildPasteTypePills() {
+  const el = document.getElementById("paste-type-pills");
+  el.innerHTML = Object.entries(TYPES).map(([k,v]) =>
+    `<button class="paste-pill-btn${k===state.pasteType?" active":""}" data-type="${k}"
+       style="${k===state.pasteType?"background:"+v.color+";":""}">
+      ${v.emoji} ${v.label}
+    </button>`
+  ).join("");
+  el.querySelectorAll(".paste-pill-btn").forEach(btn =>
+    btn.addEventListener("click", () => { state.pasteType = btn.dataset.type; buildPasteTypePills(); })
+  );
+}
+
+function renderStats() {
+  document.getElementById("stats-grid").innerHTML = Object.entries(TYPES).map(([k,v]) =>
+    `<div class="stat-tile">
+      <div class="stat-emoji">${v.emoji}</div>
+      <div class="stat-count">${state.cards.filter(c=>c.type===k).length}</div>
+      <div class="stat-name">${v.label}s</div>
+    </div>`
+  ).join("");
+  document.getElementById("stat-total-count").textContent = state.cards.length;
+}
+
+document.getElementById("btn-sync").addEventListener("click", async () => {
+  const key  = document.getElementById("notion-key").value.trim();
+  const dbId = document.getElementById("notion-db").value.trim();
+  const box  = document.getElementById("sync-status-box");
+  const btn  = document.getElementById("btn-sync");
+  btn.disabled = true; btn.textContent = "Syncing…"; box.style.display = "none";
+  try {
+    const res  = await fetch("/api/notion", {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ apiKey:key||undefined, databaseId:dbId||undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+    let imported = 0;
+    for (const card of (data.cards || [])) {
+      if (!state.cards.some(c => c.notionId === card.notionId)) { addCard({ ...card }); imported++; }
+    }
+    box.className = "ok"; box.textContent = `✅ Imported ${imported} new item${imported!==1?"s":""}!`;
+    box.style.display = "block"; renderStats();
+  } catch(e) {
+    box.className = "err"; box.textContent = `⚠️ ${e.message}`; box.style.display = "block";
+  }
+  btn.disabled = false; btn.textContent = "🔄 Sync Now";
+});
+
+document.getElementById("btn-paste-import").addEventListener("click", () => {
+  const raw = document.getElementById("paste-raw").value;
+  if (!raw.trim()) return;
+  const blocks = raw.split(/\n{2,}/).map(b=>b.trim()).filter(Boolean);
+  const lines  = blocks.length > 1 ? blocks : raw.split("\n").map(l=>l.trim()).filter(Boolean);
+  let count = 0;
+  for (const line of lines) {
+    if (line.length < 5) continue;
+    const ds = line.split(/\s[-–]\s/);
+    const cs = line.split(/:\s+/);
+    let title, content;
+    if (ds.length >= 2)              { title = ds[0].slice(0,80); content = ds.slice(1).join(" - "); }
+    else if (cs.length >= 2 && cs[0].length < 60) { title = cs[0]; content = cs.slice(1).join(": "); }
+    else { title = line.slice(0,60)+(line.length>60?"…":""); content = line; }
+    if (!state.cards.some(c => c.content === content)) { addCard({ title, content, type:state.pasteType, tags:[] }); count++; }
+  }
+  const ps = document.getElementById("paste-status");
+  ps.textContent = `✅ Imported ${count} item${count!==1?"s":""}!`; ps.style.display = "block";
+  document.getElementById("paste-raw").value = "";
+  setTimeout(() => { ps.style.display = "none"; }, 3000);
+  renderStats();
+});
+
+/* ════════════════════ INIT ════════════════════ */
+(function init() {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  applyDark(mq.matches);
+  mq.addEventListener("change", e => applyDark(e.matches));
+
+  try {
+    const raw = localStorage.getItem("mindswipe-cards");
+    state.cards = raw ? JSON.parse(raw) : SAMPLES;
+  } catch { state.cards = SAMPLES; }
+
+  document.getElementById("loading").style.display    = "none";
+  document.getElementById("app").style.display        = "flex";
+  document.getElementById("bottom-nav").style.display = "flex";
+
+  buildAddTypePills();
+  buildPasteTypePills();
+  showScreen("swipe");
+})();
+</script>
+</body>
+</html>
